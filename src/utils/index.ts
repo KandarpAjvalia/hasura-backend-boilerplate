@@ -4,8 +4,8 @@ import axios from 'axios'
 import {adminConfig} from '../config/adminConfig'
 
 type validateEmailType = (email: string) => boolean
-type getRequestDataType = (query: string | undefined, variables: {[k: string]: string}) => string
-type getGraphQLType = (operation: 'query' | 'mutation',fileName: string) => Promise<string | undefined>
+type getRequestDataType = (query: string | undefined, variables: { [k: string]: string }) => string
+type getGraphQLType = (operation: 'query' | 'mutation', fileName: string) => Promise<string | undefined>
 type findUserByEmailType = (email: string) => Promise<{ [k: string]: any } | null>
 
 export const validateEmail: validateEmailType = (email) => {
