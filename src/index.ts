@@ -11,6 +11,8 @@ app.post('/register', userController.register)
 
 app.post('/login', userController.login)
 
+app.post('/refresh-token', userController.refreshToken)
+
 app.listen(port, () => {
 	return console.log(`server is listening on ${port}`)
 })

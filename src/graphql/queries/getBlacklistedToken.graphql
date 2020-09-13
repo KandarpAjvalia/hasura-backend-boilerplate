@@ -1,0 +1,5 @@
+query getBlacklistedToken($token: String!) {
+    blacklisted_tokens_by_pk(token: $token) {
+        token
+    }
+}

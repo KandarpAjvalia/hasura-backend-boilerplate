@@ -1,0 +1,8 @@
+mutation addBlacklistToken($token: String!, $exp: timestamptz) {
+    insert_blacklisted_tokens_one(object: {
+        token: $token
+        expiration_time: $exp
+    }) {
+        token
+    }
+}

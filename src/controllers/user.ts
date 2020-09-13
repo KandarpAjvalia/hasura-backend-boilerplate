@@ -2,7 +2,11 @@ import express from 'express'
 import {findUserByEmail, getGraphQL, getRequestData, validateEmail} from '../utils'
 import bcrypt from 'bcrypt'
 import axios from 'axios'
+import jwt from 'jsonwebtoken'
 import {adminConfig} from '../config/adminConfig'
+import dotenv from 'dotenv'
+
+dotenv.config()
 
 const register = async (req: express.Request, res: express.Response) => {
 	const {
@@ -54,7 +58,6 @@ const register = async (req: express.Request, res: express.Response) => {
 				password: hashedPassword
 			})
 			registerUserResponse = await axios.post('http://localhost:8080/v1/graphql', data, adminConfig)
-			console.log(JSON.stringify(registerUserResponse.data, null, 2))
 
 		} catch (err) {
 			console.error(err)
@@ -110,8 +113,122 @@ const login = async (req: express.Request, res: express.Response) => {
 		return
 	}
 
-	res.json(userData)
+	delete userData.data.user[0].password
+
+	const accessTokenSecret = process.env.JWT_ACCESS_SECRET as string
+	const refreshTokenSecret = process.env.JWT_REFRESH_SECRET as string
+
+	const user = userData.data.user[0]
+
+	const accessToken = jwt.sign({user}, accessTokenSecret, {
+		expiresIn: '15m'
+	})
+
+	const refreshToken = jwt.sign({user}, refreshTokenSecret, {
+		expiresIn: '3h'
+	})
+
+	res.json({
+		accessToken,
+		refreshToken
+	})
 }
 
-export default {register, login}
+const refreshToken = async (req: express.Request, res: express.Response) => {
+	const { refreshToken } = req.body
+
+	// check if refresh token exists in request
+	// return 401 if null
+	if (refreshToken === null) {
+		res.sendStatus(401)
+		return
+	}
+
+	// check if blacklisted token db contains the refresh token
+	let refreshTokenExists = false
+	let getBlacklistedTokenResponse = null
+
+	try {
+		const getBlacklistedToken = await getGraphQL('query', 'getBlacklistedToken')
+
+		const data = getRequestData(getBlacklistedToken, {
+			token: refreshToken,
+		})
+		getBlacklistedTokenResponse = await axios.post('http://localhost:8080/v1/graphql', data, adminConfig)
+
+		if (getBlacklistedTokenResponse.data.data.blacklisted_tokens_by_pk !== null) {
+			res.sendStatus(401)
+			return
+		}
+
+	} catch (err) {
+		console.error(err)
+		res.sendStatus(502)
+		return
+	}
+
+	// if it does, return 403
+	if (refreshTokenExists) {
+		res.sendStatus(403)
+		return
+	}
+
+	// if it doesn't, verify with jwt.verify()
+	const refreshTokenSecret = process.env.JWT_REFRESH_SECRET as string
+
+	let decodedToken = null
+	try {
+		decodedToken = jwt.verify(refreshToken, refreshTokenSecret)
+	} catch (err) {
+		// if verification fails, return 403
+		console.error(err)
+		res.sendStatus(403)
+		return
+	}
+
+	const accessTokenSecret = process.env.JWT_ACCESS_SECRET as string
+
+	let newAccessToken = null
+	let newRefreshToken = null
+	// decoded successfully, generate new accessToken and refreshToken
+	if (decodedToken) {
+		// @ts-ignore
+		const {user} = decodedToken
+		newAccessToken = jwt.sign({user}, accessTokenSecret, {
+			expiresIn: '15m'
+		})
+
+		newRefreshToken = jwt.sign({user}, refreshTokenSecret, {
+			expiresIn: '3h'
+		})
+	}
+
+	// add old refresh token to blacklisted
+	let addBlacklistTokenResponse = null
+	try {
+		const addBlacklistToken = await getGraphQL('mutation', 'addBlacklistToken')
+
+		// @ts-ignore
+		const refreshTokenExp = decodedToken.exp
+
+		const data = getRequestData(addBlacklistToken, {
+			token: refreshToken,
+			exp: new Date(refreshTokenExp * 1000).toISOString()
+		})
+		addBlacklistTokenResponse = await axios.post('http://localhost:8080/v1/graphql', data, adminConfig)
+
+	} catch (err) {
+		console.error(err)
+		res.sendStatus(502)
+	}
+
+	// send new accessToken and refreshToken to the client
+
+	res.json({
+		accessToken: newAccessToken,
+		refreshToken: newRefreshToken
+	})
+}
+
+export default {register, login, refreshToken}
 
