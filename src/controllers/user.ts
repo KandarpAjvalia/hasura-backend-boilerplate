@@ -4,9 +4,16 @@ import bcrypt from 'bcrypt'
 import axios from 'axios'
 import jwt from 'jsonwebtoken'
 import {adminConfig} from '../config/adminConfig'
-import dotenv from 'dotenv'
+// import dotenv from 'dotenv'
+//
+// dotenv.config()
 
-dotenv.config()
+const cookieConfig = {
+	httpOnly: true,
+	// secure: true,
+	maxAge: 10800000,
+	signed: true
+}
 
 const register = async (req: express.Request, res: express.Response) => {
 	const {
@@ -94,7 +101,7 @@ const login = async (req: express.Request, res: express.Response) => {
 	}
 
 	if (!userData) {
-		res.json({
+		res.status(401).json({
 			status: 'error',
 			message: 'Invalid Email or Password'
 		})
@@ -106,7 +113,7 @@ const login = async (req: express.Request, res: express.Response) => {
 	const passwordsMatch = await bcrypt.compare(password, hashedPassword)
 
 	if (!passwordsMatch) {
-		res.json({
+		res.status(401).json({
 			status: 'error',
 			message: 'Invalid Email or Password'
 		})
@@ -125,17 +132,18 @@ const login = async (req: express.Request, res: express.Response) => {
 	})
 
 	const refreshToken = jwt.sign({user}, refreshTokenSecret, {
-		expiresIn: '3h'
+		expiresIn: '30s'
 	})
+
+	res.cookie('refreshToken', refreshToken, cookieConfig)
 
 	res.json({
 		accessToken,
-		refreshToken
 	})
 }
 
 const refreshToken = async (req: express.Request, res: express.Response) => {
-	const { refreshToken } = req.body
+	const { refreshToken } = req.signedCookies
 
 	// check if refresh token exists in request
 	// return 401 if null
@@ -220,13 +228,14 @@ const refreshToken = async (req: express.Request, res: express.Response) => {
 	} catch (err) {
 		console.error(err)
 		res.sendStatus(502)
+		return
 	}
 
 	// send new accessToken and refreshToken to the client
+	res.cookie('refreshToken', newRefreshToken, cookieConfig)
 
 	res.json({
 		accessToken: newAccessToken,
-		refreshToken: newRefreshToken
 	})
 }
 
