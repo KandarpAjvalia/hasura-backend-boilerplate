@@ -1,12 +1,9 @@
 import express from 'express'
-import {findUserByEmail, getGraphQL, getRequestData, validateEmail} from '../utils'
+import {addBlacklistToken, findUserByEmail, getGraphQL, getRequestData, validateEmail} from '../utils'
 import bcrypt from 'bcrypt'
 import axios from 'axios'
 import jwt from 'jsonwebtoken'
 import {adminConfig} from '../config/adminConfig'
-// import dotenv from 'dotenv'
-//
-// dotenv.config()
 
 const cookieConfig = {
 	httpOnly: true,
@@ -138,12 +135,12 @@ const login = async (req: express.Request, res: express.Response) => {
 	res.cookie('refreshToken', refreshToken, cookieConfig)
 
 	res.json({
-		accessToken,
+		accessToken
 	})
 }
 
 const refreshToken = async (req: express.Request, res: express.Response) => {
-	const { refreshToken } = req.signedCookies
+	const {refreshToken} = req.signedCookies
 
 	// check if refresh token exists in request
 	// return 401 if null
@@ -160,7 +157,7 @@ const refreshToken = async (req: express.Request, res: express.Response) => {
 		const getBlacklistedToken = await getGraphQL('query', 'getBlacklistedToken')
 
 		const data = getRequestData(getBlacklistedToken, {
-			token: refreshToken,
+			token: refreshToken
 		})
 		getBlacklistedTokenResponse = await axios.post('http://localhost:8080/v1/graphql', data, adminConfig)
 
@@ -211,33 +208,56 @@ const refreshToken = async (req: express.Request, res: express.Response) => {
 		})
 	}
 
-	// add old refresh token to blacklisted
-	let addBlacklistTokenResponse = null
-	try {
-		const addBlacklistToken = await getGraphQL('mutation', 'addBlacklistToken')
-
-		// @ts-ignore
-		const refreshTokenExp = decodedToken.exp
-
-		const data = getRequestData(addBlacklistToken, {
-			token: refreshToken,
-			exp: new Date(refreshTokenExp * 1000).toISOString()
-		})
-		addBlacklistTokenResponse = await axios.post('http://localhost:8080/v1/graphql', data, adminConfig)
-
-	} catch (err) {
-		console.error(err)
-		res.sendStatus(502)
-		return
-	}
+	await addBlacklistToken(refreshToken, decodedToken, res)
 
 	// send new accessToken and refreshToken to the client
 	res.cookie('refreshToken', newRefreshToken, cookieConfig)
 
 	res.json({
-		accessToken: newAccessToken,
+		accessToken: newAccessToken
 	})
 }
 
-export default {register, login, refreshToken}
+const logout = async (req: express.Request, res: express.Response) => {
+	const {accessToken} = req.body
+	const {refreshToken} = req.signedCookies
+
+	// check if access and refresh token exists in request
+	// return 401 if null
+	if (refreshToken === null || accessToken === null) {
+		res.sendStatus(401)
+		return
+	}
+
+	// verify access token and add it to blacklist
+	const accessTokenSecret = process.env.JWT_ACCESS_SECRET as string
+	try {
+		const decodedAccessToken = jwt.verify(accessToken, accessTokenSecret)
+		await addBlacklistToken(accessToken, decodedAccessToken, res)
+
+	} catch (err) {
+		console.error(err)
+		res.sendStatus(403)
+		return
+	}
+
+	// verify refresh token and add it to blacklist
+	const refreshTokenSecret = process.env.JWT_REFRESH_SECRET as string
+	try {
+		const decodedRefreshToken = jwt.verify(refreshToken, refreshTokenSecret)
+		await addBlacklistToken(refreshToken, decodedRefreshToken, res)
+	} catch (err) {
+		console.error(err)
+		res.sendStatus(403)
+		return
+	}
+
+	// remove cookie from the client
+	res.clearCookie('refreshToken')
+
+	// redirect to homepage
+	res.redirect('/')
+}
+
+export default {register, login, refreshToken, logout}
 

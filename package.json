@@ -1,5 +1,5 @@
 {
-  "name": "hasura-backend",
+  "name": "hasura-backend-boilerplate",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
